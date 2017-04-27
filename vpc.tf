@@ -21,33 +21,6 @@ resource "aws_internet_gateway" "my_igw" {
   depends_on = ["aws_vpc.my_vpc"]
 }
 
-///*
-//  Public Subnet
-//*/
-resource "aws_subnet" "us-west-2a-public" {
-  vpc_id = "${aws_vpc.my_vpc.id}"
-
-  cidr_block = "10.0.0.0/24"
-  availability_zone = "us-west-2a"
-
-  tags {
-    Name = "Public Subnet"
-  }
-  depends_on = ["aws_vpc.my_vpc"]
-}
-
-resource "aws_subnet" "us-west-2b-public" {
-  vpc_id = "${aws_vpc.my_vpc.id}"
-
-  cidr_block = "10.0.1.0/24"
-  availability_zone = "us-west-2b"
-
-  tags {
-    Name = "Public Subnet"
-  }
-  depends_on = ["aws_vpc.my_vpc"]
-}
-
 /*
   Create nat gateway in us-west-2a-public public subnet
 */
@@ -55,10 +28,13 @@ resource "aws_eip" "nat" {
   vpc = true
 }
 
-
+/*
+ Create NAT Gateway in 1 subnet
+*/
 resource "aws_nat_gateway" "gw" {
   allocation_id = "${aws_eip.nat.id}"
-  subnet_id = "${aws_subnet.us-west-2a-public.id}"
+//  subnet_id = "${element(aws_subnet.public.*.id, ${length(var.private_ranges) - 1})}"
+  subnet_id = "${aws_subnet.public.0.id}"
   depends_on = [
     "aws_internet_gateway.my_igw"]
 }
@@ -66,28 +42,28 @@ resource "aws_nat_gateway" "gw" {
 /*
   Private Subnet
 */
-resource "aws_subnet" "us-west-2a-private" {
+resource "aws_subnet" "private" {
   vpc_id = "${aws_vpc.my_vpc.id}"
-
-  cidr_block = "10.0.2.0/24"
-  availability_zone = "us-west-2a"
-
+  cidr_block = "${element(var.private_ranges, count.index)}"
+  availability_zone = "${element(var.azs, count.index)}"
+  count = "${length(var.private_ranges)}"
   tags {
-    Name = "Private Subnet"
+    Name = "subnet_private_${count.index}"
   }
-  depends_on = ["aws_vpc.my_vpc"]
 }
 
-resource "aws_subnet" "us-west-2b-private" {
+/*
+  Public subnet
+*/
+resource "aws_subnet" "public" {
   vpc_id = "${aws_vpc.my_vpc.id}"
-
-  cidr_block = "10.0.3.0/24"
-  availability_zone = "us-west-2b"
-
+  cidr_block = "${element(var.public_ranges, count.index)}"
+  availability_zone = "${element( var.azs, count.index)}"
+  count = "${length(var.public_ranges)}"
   tags {
-    Name = "Private Subnet"
+    Name = "subnet_public_${count.index}"
   }
-  depends_on = ["aws_vpc.my_vpc"]
+  map_public_ip_on_launch = true
 }
 
 
@@ -118,22 +94,20 @@ resource "aws_route_table" "public" {
   depends_on = ["aws_vpc.my_vpc"]
 }
 
-resource "aws_route_table_association" "eu-west-1a-public" {
-  subnet_id = "${aws_subnet.us-west-2a-private.id}"
+/*
+ Associate all private subnets with nat gateway
+*/
+resource "aws_route_table_association" "private_subnet_tables" {
+  count = "${length(var.private_ranges)}"
+  subnet_id = "${element(aws_subnet.private.*.id, count.index)}"
   route_table_id = "${aws_route_table.private.id}"
 }
 
-resource "aws_route_table_association" "eu-west-1a-public" {
-  subnet_id = "${aws_subnet.us-west-2b-private.id}"
-  route_table_id = "${aws_route_table.private.id}"
-}
-
-resource "aws_route_table_association" "eu-west-1a-public" {
-  subnet_id = "${aws_subnet.us-west-2b-public.id}"
-  route_table_id = "${aws_route_table.public.id}"
-}
-
-resource "aws_route_table_association" "eu-west-1a-public" {
-  subnet_id = "${aws_subnet.us-west-2a-public.id}"
+/*
+ Associate all public subnets with internet gateway
+*/
+resource "aws_route_table_association" "public_subnet_tables" {
+  count = "${length(var.private_ranges)}"
+  subnet_id = "${element(aws_subnet.public.*.id, count.index)}"
   route_table_id = "${aws_route_table.public.id}"
 }
