@@ -5,111 +5,15 @@ provider "aws" {
   skip_credentials_validation = true
 }
 
-/*
-  Create my vpc
-*/
-resource "aws_vpc" "my_vpc" {
-  cidr_block = "10.0.0.0/16"
-  enable_dns_hostnames = true
-}
-
-/*
-  Internet gateway
-*/
-resource "aws_internet_gateway" "my_igw" {
-  vpc_id = "${aws_vpc.my_vpc.id}"
-  depends_on = [
-    "aws_vpc.my_vpc"]
-}
-
-resource "aws_eip" "nat" {
-  vpc = true
-}
-
-/*
- Create NAT Gateway in 1 subnet
-*/
-resource "aws_nat_gateway" "gw" {
-  allocation_id = "${aws_eip.nat.id}"
-  subnet_id = "${aws_subnet.public.id}"
-  depends_on = [
-    "aws_internet_gateway.my_igw"]
-}
-
-/*
-  Private Subnet
-*/
-resource "aws_subnet" "private" {
-  vpc_id = "${aws_vpc.my_vpc.id}"
-  cidr_block = "${var.private_range}"
-  availability_zone = "${var.az}"
-  tags {
-    Name = "subnet_private"
-  }
-}
-
-/*
-  Public subnet
-*/
-resource "aws_subnet" "public" {
-  vpc_id = "${aws_vpc.my_vpc.id}"
-  cidr_block = "${var.public_range}"
-  availability_zone = "${var.az}"
-  tags {
-    Name = "subnet_public"
-  }
-  map_public_ip_on_launch = true
-}
-
-
-resource "aws_route_table" "private" {
-  vpc_id = "${aws_vpc.my_vpc.id}"
-
-  route = {
-    cidr_block = "0.0.0.0/0"
-    nat_gateway_id = "${aws_nat_gateway.gw.id}"
-  }
-  tags {
-    Name = "Private Subnet"
-  }
-  depends_on = [
-    "aws_vpc.my_vpc"]
-}
-
-resource "aws_route_table" "public" {
-  vpc_id = "${aws_vpc.my_vpc.id}"
-
-  route {
-    cidr_block = "0.0.0.0/0"
-    gateway_id = "${aws_internet_gateway.my_igw.id}"
-  }
-
-  tags {
-    Name = "Public Subnet"
-  }
-  depends_on = [
-    "aws_vpc.my_vpc"]
-}
-
-/*
- Associate all private subnets with nat gateway
-*/
-resource "aws_route_table_association" "private_subnet_table" {
-  subnet_id = "${aws_subnet.private.id}"
-  route_table_id = "${aws_route_table.private.id}"
-}
-
-/*
- Associate all public subnets with internet gateway
-*/
-resource "aws_route_table_association" "public_subnet_table" {
-  subnet_id = "${aws_subnet.public.id}"
-  route_table_id = "${aws_route_table.public.id}"
+module "my-vpc" {
+  source = "./vpc"
+  access_key = "${var.access_key}"
+  secret_key = "${var.secret_key}"
 }
 
 resource "aws_security_group" "my_sg" {
 
-  vpc_id = "${aws_vpc.my_vpc.id}"
+  vpc_id = "${module.my-vpc.vpcID}"
 
   ingress {
     from_port = 22
@@ -137,7 +41,7 @@ resource "aws_security_group" "my_sg" {
 resource "aws_instance" "public_instance" {
   security_groups = [
     "${aws_security_group.my_sg.id}"]
-  subnet_id = "${aws_subnet.public.id}"
+  subnet_id = "${module.my-vpc.publicSubnetId}"
   ami = "${var.ami}"
   instance_type = "${var.instance_type}"
 
@@ -147,7 +51,7 @@ resource "aws_instance" "private_instance" {
   security_groups = [
     "${aws_security_group.my_sg.id}"
   ]
-  subnet_id = "${aws_subnet.private.id}"
+  subnet_id = "${module.my-vpc.privateSubnetId}"
   ami = "${var.ami}"
   instance_type = "${var.instance_type}"
 
@@ -174,7 +78,7 @@ resource "aws_elb" "my_elb" {
   instances = [
     "${aws_instance.private_instance.id}"]
   subnets = [
-    "${aws_subnet.public.id}"]
+    "${module.my-vpc.publicSubnetId}"]
 }
 
 /*
