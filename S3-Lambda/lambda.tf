@@ -54,6 +54,16 @@ data "aws_iam_policy_document" "lambda_access" {
       identifiers = ["lambda.amazonaws.com"]
     }
   }
+//  statement {
+//    actions = [
+//      "cloudfront:CreateInvalidation"
+//    ]
+//    effect = "Allow"
+//    principals {
+//      type        = "Service"
+//      identifiers = ["lambda.amazonaws.com"]
+//    }
+//  }
 }
 
 resource "aws_iam_role" "iam_for_lambda" {
@@ -61,16 +71,47 @@ resource "aws_iam_role" "iam_for_lambda" {
   assume_role_policy = "${data.aws_iam_policy_document.lambda_access.json}"
 }
 
+resource "aws_lambda_function" "cacheInvalidationStarted" {
+  filename         = "functions/InvalidateCache.zip"
+  function_name    = "Invalidation_started_trigger"
+  role             = "${aws_iam_role.iam_for_lambda.arn}"
+  handler          = "cacheInvalidationStarted.invalidationStarted"
+  runtime          = "nodejs4.3"
+  environment {
+    variables = {
+      apiVersion = "${var.envVersion}}",
+      region = "${var.region}"
+    }
+  }
+
+}
+
+resource "aws_lambda_function" "cacheInvalidationFinished" {
+  filename         = "functions/InvalidateCache.zip"
+  function_name    = "Invalidation_finished_trigger"
+  role             = "${aws_iam_role.iam_for_lambda.arn}"
+  handler          = "cacheInvalidationFinished.invalidationFinished"
+  runtime          = "nodejs4.3"
+  environment {
+    variables = {
+      apiVersion = "${var.envVersion}}",
+      region = "${var.region}"
+    }
+  }
+
+}
+
 resource "aws_lambda_function" "my_lambda" {
   filename         = "functions/InvalidateCache.zip"
   function_name    = "lambda_function_name"
   role             = "${aws_iam_role.iam_for_lambda.arn}"
   handler          = "InvalidateCache.test"
-  source_code_hash = "${base64sha256(file("functions/InvalidateCache.js"))}"
   runtime          = "nodejs4.3"
   environment {
     variables = {
-      distributionId = "${aws_cloudfront_distribution.s3_distribution.id}"
+      distributionId = "${aws_cloudfront_distribution.s3_distribution.id}",
+      apiVersion = "${var.envVersion}}",
+      region = "${var.region}"
     }
   }
 
